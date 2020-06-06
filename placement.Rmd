@@ -1,0 +1,239 @@
+---
+title: "The Salary question?"
+date: "6/6/2020"
+output: html_document
+---
+"This data set consists of Placement data of students in B-School. It includes secondary and higher secondary school percentage and specialization. It also includes degree specialization, type and Work experience and salary offered to the placed students."
+
+Source: Kaggle (https://www.kaggle.com/benroshan/factors-affecting-campus-placement) 
+
+I attempted to answer the following questions from the dataset:
+
+Q. How is salary correlated with given variables? 
+
+Q. How are the variables related with the amount of salaries offered during placement?
+
+Q. Can the salaries be predicted based on the related variables?
+
+Q. How can this student cohort be categorized based on their distinct standing on different variables in the dataset?
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+place_data <- read.csv("Placement_Data_Full_Class.csv")
+```
+
+*Exploratory Data Analysis*
+```{r}
+#A snashpshot of data helps understand how the data is placed.
+head(place_data)
+
+#There's a mix of factors and integers in this dataset. Salary column shows NAs for people who have not been placed yet. For this analysis, those rows will be removed.
+str(place_data)
+
+place_data <- na.omit(place_data)
+
+```
+
+
+```{r}
+summary(place_data)
+
+attach(place_data)
+```
+
+Exploring the response variable - Salary
+```{r}
+#The standard deviation for salaries is high, 93,457, which means that salaries have a large amount of variation. This could be due to maybe score difference at different level, roles being offered, or gender maybe. 
+sd(salary)
+
+#But bulk of the students are offered salaries in the 200,000 to 300,000 range. And very few have been offered salaries beyond this range.  
+hist(salary)
+
+#There's a merit in seeing actual share of students, even number of students for the higher salaries. Since, it's a tiny dataset, an outlier can have a larger effect on any results.
+
+table(salary)
+
+#It's a smaller dataset, so there's an advantage of looking directly at the numbers, in larger dataset, proportion of salaries in a range would have made more sense.
+
+#Clearly, of 148 students, only 28 students over 300,000 
+nrow(subset(place_data %>% filter(salary > 300000)))
+
+#and, 
+
+#only 6 students were offered salaries equal to and above 500,000.
+nrow(subset(place_data %>% filter(salary >= 500000)))
+
+#Removing these 6 rows would reduce the variation in the values, as the gap between the salary range is also much wider from rest of the salary range. Removing this range result in a better fit in the regression model in the forthcoming steps.  
+```
+
+```{r}
+#Deleted six rows >= 500,000
+data_minus6 <- place_data %>% filter(salary <500000)
+
+```
+
+Q1. How is salary correlated with given variables? 
+```{r}
+#List of numerical variables from the main dataset
+data_int <- data_minus6[,c(3,5,8,11,13,15)]
+
+#Correlation between salary and other variables is not very noticeable, though all of them are positively correlated.
+cor(data_int)
+
+#correlation between categorical variables and Salary?
+
+```
+
+Q.2 How are the variables related with the amount of salaries offered during placement?
+```{r}
+#A multiple regression model should be able to help in explaining the variation in salary due to the given explanatory variables in the model.
+library(car)
+
+attach(data_minus6)
+
+#removing "serial_no" and "status" columns as they don't serve any purpose.
+data_minus6 <- data_minus6[,-c(1,14)]
+```
+
+Q. How are the variables related with the amount of salaries offered during placement?
+
+```{r}
+#*Multiple Regression Model*
+
+model_salary <- lm(salary~., data = data_minus6)
+
+summary(model_salary)
+
+#Analysis: So, the model shows:
+
+#1. Adjusted R-squared value as 0.12, which means only 12% variation in salaries is being explained by the predictors, which means there are other factors involved, possibly type of roles, or size of employers. It's a very weak model, which can't be deployed to predict salaries, given the predictors are not effective in explaining variation in the response variable.
+
+#2. Only three predictors are statistically significant at p <0.5 - gender, etest(entrance test for the job), MBA grades/scores. 
+
+#Interpretation
+
+# The difference between salaries offered to Males and females is 26,831, which means, keeping other factors constant, male students are being offered higher salaries than female students. (No surprises there.)
+
+#For a one-unit increase in scores in the entrance test for a job, offered salary could go up by 740.
+
+#Student scoring higher in MBA, are offered higher salaries. In this case, keeping other factors constant, unit percentage increase in marks could result in an increase of 2,086 in the offered salary.
+
+```
+
+The residual-test
+```{r}
+
+#Standardizing the residuals for observing if the regression model is a good fit..
+stresidual <- rstandard(model_salary)
+
+#Plot of standardized regression vs predictor - mba_p
+plot(mba_p,stresidual)
+abline(0,0)
+
+#Analysis: Although standardized residual plot is fairly random, residuals are big and vary widely.
+```
+
+*Q. Can the salaries be predicted based on the related variables?*
+
+It's a weak model, as the predictors are not able to explain the variation in the response variable.
+
+
+*Q. How can this student cohort be categorized based on their distinct standing on different variables in the dataset?*
+
+```{r}
+library(cluster)
+library(Rtsne)
+```
+
+Approach: The dataset has categorical and continous variables and as such K-means clustering wouldnt work given the algorithm uses euclidean distance, which can be used for numerical variables. So, to find clusters in the given distance, Gower's distance will be calculated, which applies Manhattan distance to find distance between continuous variables, and calculates Dice coefficient (2a/2a + b + c) for the categorical variables. The algorithm first converts categorical variables into dummy variables and then calculates Dice coefficient. 
+
+Here:
+a - number of dummies 1 for both individuals
+b - number of dummies 1 for this and 0 for that
+c - number of dummies 0 for this and 1 for that
+d - number of dummies 0 for both
+
+*reference: https://stats.stackexchange.com/questions/55798/what-is-the-optimal-distance-function-for-individuals-when-attributes-are-nomina/55802#55802*
+```{r}
+#Compute Gower distance
+gower_dist <- daisy(data_minus6, metric = "gower")
+summary(gower_dist)
+gower_mat <- as.matrix(gower_dist)
+
+#Print most similar students
+data_minus6[which(gower_mat == min(gower_mat[gower_mat != min(gower_mat)]), arr.ind = TRUE)[1, ], ]
+
+#' Print most dissimilar students
+data_minus6[which(gower_mat == max(gower_mat[gower_mat != max(gower_mat)]), arr.ind = TRUE)[1, ], ]
+```
+```{r}
+sil_width <- c(NA)
+
+for(i in 2:8){  
+  pam_fit <- pam(gower_dist, diss = TRUE, k = i)  
+  sil_width[i] <- pam_fit$silinfo$avg.width  
+}
+
+plot(1:8, sil_width,
+     xlab = "Number of clusters",
+     ylab = "Silhouette Width")
+lines(1:8, sil_width)
+```
+*Summary of each cluster*
+
+***Clusterization should be contextually understood and considered accordingly. Given it is unsupervised learning, such clusterization helps in understanding the data better, but any decision based on these clusters could only be taken keeping the context in place.***
+```{r}
+k <- 5
+
+pam_fit <- pam(gower_dist, diss = TRUE, k)
+
+pam_results <- data_minus6 %>%
+  mutate(cluster = pam_fit$clustering) %>%
+  group_by(cluster) %>%
+  do(the_summary = summary(.))
+
+pam_results$the_summary
+
+#The clusters are fairly distinct with visibly different categorical variables, however, the continuous variables are pretty much similar in every cluster. 
+
+
+
+#first cluster is : Mostly Males * state/private universities 10th/12th * Commerce background * communication management degree * without work experience * with Marketing and HR specialization
+
+#Second cluster is : Mostly Males * central universities 10th/12th * Science background * STEM degree * with work experience * with Marketing and HR specialization
+
+#Third cluster is : Mixed gender * central universities 10th/12th * Commerce background * communication management degree * without work experience * with Marketing and finance specialization
+
+#Fourth cluster is : Mostly males * state/private universities 10th/12th * Commerce background * communication management degree * with work experience * with Marketing and finance specialization
+
+#5th cluster is : Mixed gender * state/private universities 10th/12th * Science background * STEM degree * mostly without work experience * with Marketing and finance specialization
+
+```
+
+*Visualizing the clusters*
+
+```{r}
+viz_cluster <- Rtsne(gower_dist, is_distance = TRUE)
+
+viz_data <- viz_cluster$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_fit$clustering))
+
+ggplot(aes(x = X, y = Y), data = viz_data) +
+  geom_point(aes(color = cluster))
+
+#There are visibly distinct five clusters in this dataset.
+```
+
+
+
+
+
+
+
+
+
